@@ -486,16 +486,14 @@
                       {
                         method: "GET",
                         headers: {
-                          "apikey": SUPABASE_KEY
+                          "apikey": SUPABASE_KEY,
+                          "Authorization": `Bearer ${SUPABASE_KEY}`
                         }
                       }
                     );
 
                     if (!response.ok) {
-                      throw new Error(
-                        "Supabase user lookup failed: HTTP " +
-                        response.status + " - " + await response.text()
-                      );
+                      throw new Error("Supabase error: " + response.status);
                     }
 
                     const data = await response.json();
@@ -534,15 +532,14 @@
                   try {
                     const data = String(getKodularWebViewString()).trim();
 
-                    // Preferred Kodular format: USER|<username>|<display name>
-                    // NAME|<display name> can update the greeting, but cannot identify the account.
-                    if (data.startsWith("USER|")) {
+                    // The Quiz screen blocks send: NAME|<user's name>
+                    if (data.startsWith("NAME|")) {
+                      currentDisplayName = data.substring(5).trim();
+                    } else if (data.startsWith("USER|")) {
                       // Also support the USER|username|name format used by the Clean Up game.
                       const parts = data.split("|");
                       currentUsername = (parts[1] || "").trim();
                       currentDisplayName = (parts[2] || "").trim();
-                    } else if (data.startsWith("NAME|")) {
-                      currentDisplayName = data.substring(5).trim();
                     }
 
                     const greeting = document.getElementById("welcomeName");
@@ -567,56 +564,94 @@
                   const username = String(currentUsername || "").trim();
 
                   if (!username) {
-                    console.error(
-                      "Username not found. Kodular must send USER|username|name before an achievement can be saved:",
-                      badgeId
-                    );
+                    console.log("Username not received. Quiz badge not saved:", badgeId);
                     return;
                   }
 
+                  // Use the same proven save/check/update method as the Clean Up game.
+                  const headers = {
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": "Bearer " + SUPABASE_KEY,
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation"
+                  };
+
+                  const filter =
+                    "?username=eq." + encodeURIComponent(username) +
+                    "&badge_id=eq." + encodeURIComponent(badgeId);
+
                   try {
-                    const url =
-                      `${SUPABASE_URL}/rest/v1/quiz_achievements` +
-                      `?username=eq.${encodeURIComponent(username)}` +
-                      `&badge_id=eq.${encodeURIComponent(badgeId)}`;
+                    // First, find the pre-created badge row for this user.
+                    const checkResponse = await fetch(
+                      SUPABASE_URL + "/rest/v1/quiz_achievements" +
+                      filter + "&select=id,unlocked_at&limit=1",
+                      {
+                        method: "GET",
+                        headers: headers
+                      }
+                    );
 
-                    const response = await fetch(url, {
-                      method: "PATCH",
-                      headers: {
-                        "apikey": SUPABASE_KEY,
-                        "Content-Type": "application/json",
-                        "Prefer": "return=representation"
-                      },
-                      body: JSON.stringify({
-                        unlocked_at: new Date().toISOString()
-                      })
-                    });
-
-                    const responseText = await response.text();
-
-                    if (!response.ok) {
-                      console.error(
-                        "Failed to unlock quiz achievement:",
-                        badgeId,
-                        "HTTP",
-                        response.status,
-                        responseText
+                    if (!checkResponse.ok) {
+                      throw new Error(
+                        "Quiz achievement lookup failed: HTTP " +
+                        checkResponse.status + " - " + await checkResponse.text()
                       );
+                    }
+
+                    const records = await checkResponse.json();
+
+                    // Do not overwrite the original unlock date if already unlocked.
+                    if (records.length > 0 && records[0].unlocked_at) {
+                      console.log("Quiz achievement already unlocked:", badgeId);
                       return;
                     }
 
-                    if (!responseText || responseText === "[]") {
-                      console.warn(
-                        "No matching quiz_achievements row was updated. Check that this username and badge_id already exist:",
-                        username,
-                        badgeId
+                    // If the row exists, update it using its id.
+                    if (records.length > 0) {
+                      const updateResponse = await fetch(
+                        SUPABASE_URL + "/rest/v1/quiz_achievements" +
+                        "?id=eq." + encodeURIComponent(records[0].id),
+                        {
+                          method: "PATCH",
+                          headers: headers,
+                          body: JSON.stringify({
+                            unlocked_at: new Date().toISOString()
+                          })
+                        }
                       );
-                      return;
+
+                      if (!updateResponse.ok) {
+                        throw new Error(
+                          "Quiz achievement update failed: HTTP " +
+                          updateResponse.status + " - " + await updateResponse.text()
+                        );
+                      }
+                    } else {
+                      // If no pre-created row exists, insert an unlocked row.
+                      const insertResponse = await fetch(
+                        SUPABASE_URL + "/rest/v1/quiz_achievements",
+                        {
+                          method: "POST",
+                          headers: headers,
+                          body: JSON.stringify({
+                            username: username,
+                            badge_id: badgeId,
+                            unlocked_at: new Date().toISOString()
+                          })
+                        }
+                      );
+
+                      if (!insertResponse.ok) {
+                        throw new Error(
+                          "Quiz achievement insert failed: HTTP " +
+                          insertResponse.status + " - " + await insertResponse.text()
+                        );
+                      }
                     }
 
-                    console.log("Quiz achievement unlocked:", badgeId, responseText);
+                    console.log("Quiz achievement unlocked:", badgeId);
                   } catch (error) {
-                    console.error("Quiz achievement error:", badgeId, error);
+                    console.error("Quiz achievement save failed:", badgeId, error);
                   }
                 }
 
