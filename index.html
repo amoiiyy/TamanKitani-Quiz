@@ -558,11 +558,7 @@
                 function best(n) { try { var v = localStorage.getItem("bpq2-best-" + n); return v === null ? null : +v; } catch (e) { return null; } }
                 function saveBest(n, s) { try { var b = best(n); if (b === null || s > b) localStorage.setItem("bpq2-best-" + n, s); } catch (e) {} }
 
-                // =====================================
                 // QUIZ ACHIEVEMENTS
-                // Uses the same Supabase POST pattern as the Maze achievements.
-                // Quiz progress is tracked separately for each park on this device.
-                // =====================================
 
                 async function saveQuizAchievement(badgeId) {
                   const username = currentUsername;
