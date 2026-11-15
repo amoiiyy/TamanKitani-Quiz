@@ -466,14 +466,18 @@
 
                 // Load the logged-in player's display name using the username
                 // sent by Kodular through WebViewString.
-                async function loadUserNameFromSupabase() {
-                  try {
-                    const username = String(getKodularWebViewString()).trim();
+                let usernameLoadInProgress = false;
 
-                    if (!username || username.startsWith("NAME|") || username.startsWith("USER|")) {
-                      console.log("No plain username received from Kodular");
-                      return;
-                    }
+                async function loadUserNameFromSupabase() {
+                  if (usernameLoadInProgress || currentUsername) return;
+
+                  const username = String(getKodularWebViewString()).trim();
+                  if (!username || username.startsWith("NAME|") || username.startsWith("USER|")) {
+                    return;
+                  }
+
+                  usernameLoadInProgress = true;
+                  try {
 
                     currentUsername = username;
 
@@ -505,6 +509,8 @@
                     }
                   } catch (error) {
                     console.error("Failed to load username:", error);
+                  } finally {
+                    usernameLoadInProgress = false;
                   }
                 }
 
@@ -551,6 +557,85 @@
 
                 function best(n) { try { var v = localStorage.getItem("bpq2-best-" + n); return v === null ? null : +v; } catch (e) { return null; } }
                 function saveBest(n, s) { try { var b = best(n); if (b === null || s > b) localStorage.setItem("bpq2-best-" + n, s); } catch (e) {} }
+
+                // =====================================
+                // QUIZ ACHIEVEMENTS
+                // Uses the same Supabase POST pattern as the Maze achievements.
+                // Quiz progress is tracked separately for each park on this device.
+                // =====================================
+
+                async function saveQuizAchievement(badgeId) {
+                  const username = currentUsername;
+
+                  if (!username) {
+                    console.error("Username not found! Quiz achievement was not saved:", badgeId);
+                    return;
+                  }
+
+                  try {
+                    const response = await fetch(
+                      `${SUPABASE_URL}/rest/v1/quiz_achievements?on_conflict=username,badge_id`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "apikey": SUPABASE_KEY,
+                          "Authorization": `Bearer ${SUPABASE_KEY}`,
+                          "Content-Type": "application/json",
+                          "Prefer": "resolution=ignore-duplicates"
+                        },
+                        body: JSON.stringify({
+                          username: username,
+                          badge_id: badgeId
+                        })
+                      }
+                    );
+
+                    if (!response.ok) {
+                      console.error("Failed to save quiz achievement:", await response.text());
+                      return;
+                    }
+
+                    console.log("Quiz achievement saved:", badgeId);
+                  } catch (error) {
+                    console.error("Quiz achievement error:", error);
+                  }
+                }
+
+                function checkQuizAchievements() {
+                  const completedCount = QUIZZES.reduce(function (count, quiz, index) {
+                    return count + (best(index) !== null ? 1 : 0);
+                  }, 0);
+
+                  const perfectCount = QUIZZES.reduce(function (count, quiz, index) {
+                    return count + (best(index) === 5 ? 1 : 0);
+                  }, 0);
+
+                  // Complete any one park quiz, regardless of score.
+                  if (completedCount >= 1) {
+                    saveQuizAchievement("quiz_starter");
+                  }
+
+                  // Complete all five park quizzes, regardless of scores.
+                  if (completedCount === QUIZZES.length) {
+                    saveQuizAchievement("quiz_seeker");
+                  }
+
+                  // Get 5/5 in at least one park.
+                  if (perfectCount >= 1) {
+                    saveQuizAchievement("perfect_quiz");
+                  }
+
+                  // Get 5/5 in at least three different parks.
+                  if (perfectCount >= 3) {
+                    saveQuizAchievement("quiz_ace");
+                  }
+
+                  // Get 5/5 in all five parks.
+                  if (perfectCount === QUIZZES.length) {
+                    saveQuizAchievement("quiz_legend");
+                  }
+                }
+
                 function el(html) { var t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
                 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
                 function mount(node) { app.replaceChildren(node); window.scrollTo(0, 0); }
@@ -564,7 +649,15 @@
                   n.querySelector("#go").onclick = home;
                   mount(n);
                   receiveNameFromKodular();
+                  loadUserNameFromSupabase();
                 }
+
+                // Kodular may set WebViewString after the HTML page has loaded.
+                // Retry until the logged-in username is received.
+                setInterval(function () {
+                  receiveNameFromKodular();
+                  loadUserNameFromSupabase();
+                }, 1000);
 
                 function home() {
                   state.quiz = null;
@@ -620,6 +713,7 @@
                   var z = QUIZZES[state.quiz];
                   var score = z.questions.reduce(function (s, q, i) { return s + (state.answers[i] === q.c ? 1 : 0); }, 0);
                   saveBest(state.quiz, score);
+                  checkQuizAchievements();
                   var msg = score === 5 ? "Perfect score. Well done!" : score >= 3 ? "Good work." : "Keep exploring the parks and try again.";
                   var rev = z.questions.map(function (q, i) {
                     var ok = state.answers[i] === q.c;
