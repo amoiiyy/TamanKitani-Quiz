@@ -486,14 +486,16 @@
                       {
                         method: "GET",
                         headers: {
-                          "apikey": SUPABASE_KEY,
-                          "Authorization": `Bearer ${SUPABASE_KEY}`
+                          "apikey": SUPABASE_KEY
                         }
                       }
                     );
 
                     if (!response.ok) {
-                      throw new Error("Supabase error: " + response.status);
+                      throw new Error(
+                        "Supabase user lookup failed: HTTP " +
+                        response.status + " - " + await response.text()
+                      );
                     }
 
                     const data = await response.json();
@@ -532,14 +534,15 @@
                   try {
                     const data = String(getKodularWebViewString()).trim();
 
-                    // The Quiz screen blocks send: NAME|<user's name>
-                    if (data.startsWith("NAME|")) {
-                      currentDisplayName = data.substring(5).trim();
-                    } else if (data.startsWith("USER|")) {
+                    // Preferred Kodular format: USER|<username>|<display name>
+                    // NAME|<display name> can update the greeting, but cannot identify the account.
+                    if (data.startsWith("USER|")) {
                       // Also support the USER|username|name format used by the Clean Up game.
                       const parts = data.split("|");
                       currentUsername = (parts[1] || "").trim();
                       currentDisplayName = (parts[2] || "").trim();
+                    } else if (data.startsWith("NAME|")) {
+                      currentDisplayName = data.substring(5).trim();
                     }
 
                     const greeting = document.getElementById("welcomeName");
@@ -561,39 +564,59 @@
                 // QUIZ ACHIEVEMENTS
 
                 async function saveQuizAchievement(badgeId) {
-                  const username = currentUsername;
+                  const username = String(currentUsername || "").trim();
 
                   if (!username) {
-                    console.error("Username not found! Quiz achievement was not saved:", badgeId);
+                    console.error(
+                      "Username not found. Kodular must send USER|username|name before an achievement can be saved:",
+                      badgeId
+                    );
                     return;
                   }
 
                   try {
-                    const response = await fetch(
-                      `${SUPABASE_URL}/rest/v1/quiz_achievements?on_conflict=username,badge_id`,
-                      {
-                        method: "POST",
-                        headers: {
-                          "apikey": SUPABASE_KEY,
-                          "Authorization": `Bearer ${SUPABASE_KEY}`,
-                          "Content-Type": "application/json",
-                          "Prefer": "resolution=ignore-duplicates"
-                        },
-                        body: JSON.stringify({
-                          username: username,
-                          badge_id: badgeId
-                        })
-                      }
-                    );
+                    const url =
+                      `${SUPABASE_URL}/rest/v1/quiz_achievements` +
+                      `?username=eq.${encodeURIComponent(username)}` +
+                      `&badge_id=eq.${encodeURIComponent(badgeId)}`;
+
+                    const response = await fetch(url, {
+                      method: "PATCH",
+                      headers: {
+                        "apikey": SUPABASE_KEY,
+                        "Content-Type": "application/json",
+                        "Prefer": "return=representation"
+                      },
+                      body: JSON.stringify({
+                        unlocked_at: new Date().toISOString()
+                      })
+                    });
+
+                    const responseText = await response.text();
 
                     if (!response.ok) {
-                      console.error("Failed to save quiz achievement:", await response.text());
+                      console.error(
+                        "Failed to unlock quiz achievement:",
+                        badgeId,
+                        "HTTP",
+                        response.status,
+                        responseText
+                      );
                       return;
                     }
 
-                    console.log("Quiz achievement saved:", badgeId);
+                    if (!responseText || responseText === "[]") {
+                      console.warn(
+                        "No matching quiz_achievements row was updated. Check that this username and badge_id already exist:",
+                        username,
+                        badgeId
+                      );
+                      return;
+                    }
+
+                    console.log("Quiz achievement unlocked:", badgeId, responseText);
                   } catch (error) {
-                    console.error("Quiz achievement error:", error);
+                    console.error("Quiz achievement error:", badgeId, error);
                   }
                 }
 
