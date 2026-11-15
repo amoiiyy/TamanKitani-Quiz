@@ -460,17 +460,35 @@
                 let currentUsername = "";
                 let currentDisplayName = "";
 
+                function getKodularWebViewString() {
+                  try {
+                    if (window.AppInventor && typeof window.AppInventor.getWebViewString === "function") {
+                      return window.AppInventor.getWebViewString() || "";
+                    }
+                    if (window.Kodular && typeof window.Kodular.getWebViewString === "function") {
+                      return window.Kodular.getWebViewString() || "";
+                    }
+                  } catch (e) {
+                    console.log("Unable to read WebViewString:", e);
+                  }
+                  return "";
+                }
+
                 function receiveNameFromKodular() {
                   try {
-                    const data = window.AppInventor.getWebViewString() || "";
+                    const data = String(getKodularWebViewString()).trim();
 
-                    // Same data format used by the working Clean Up game
-                    if (data.startsWith("USER|")) {
+                    // The Quiz screen blocks send: NAME|<user's name>
+                    if (data.startsWith("NAME|")) {
+                      currentDisplayName = data.substring(5).trim();
+                    } else if (data.startsWith("USER|")) {
+                      // Also support the USER|username|name format used by the Clean Up game.
                       const parts = data.split("|");
                       currentUsername = (parts[1] || "").trim();
                       currentDisplayName = (parts[2] || "").trim();
-                    } else if (data.startsWith("NAME|")) {
-                      currentDisplayName = data.substring(5).trim();
+                    } else if (data && !data.includes("|")) {
+                      // Fallback if Kodular sends only the name.
+                      currentDisplayName = data;
                     }
 
                     const greeting = document.getElementById("welcomeName");
@@ -478,11 +496,11 @@
                       greeting.textContent = "Hi, " + currentDisplayName + "!";
                     }
                   } catch (e) {
-                    console.log("Unable to receive user data from Kodular");
+                    console.log("Unable to receive user data from Kodular:", e);
                   }
                 }
 
-                // Check Kodular WebViewString until user data arrives
+                // Keep checking in case Kodular sends the name after the page loads.
                 setInterval(receiveNameFromKodular, 500);
 
                 var app = document.getElementById("app");
@@ -497,12 +515,13 @@
 
                 function welcome() {
                   state.quiz = null;
-                  var n = el('<section class="start"><img class="logo" src="' + LOGO + '" alt="Taman Kitani logo: a smiling tree waving in a park beside a river"><div class="welcome-heading"><p class="kicker"></p><p class="kicker" id="welcomeName">Hi, Guest!</p><p class="kicker welcome-title">Welcome to TamanKitani Park Quiz</p></div>' +
+                  var n = el('<section class="start"><img class="logo" src="' + LOGO + '" alt="Taman Kitani logo: a smiling tree waving in a park beside a river"><div class="welcome-heading"><p class="kicker">Parks of Brunei</p><p class="kicker" id="welcomeName">Hi, Guest!</p><p class="kicker welcome-title">Welcome to Taman Kitani Park Quiz</p></div>' +
                     '<p class="lede">Test what you know about five parks in Brunei. Each park has its own quiz, so take them in any order.</p>' +
                     '<ul class="facts"><li>5 quizzes</li><li>1 per park</li><li>5 questions each</li><li>4 answers, 1 correct</li></ul>' +
                     '<button class="primary" id="go">Start</button></section>');
                   n.querySelector("#go").onclick = home;
                   mount(n);
+                  receiveNameFromKodular();
                 }
 
                 function home() {
