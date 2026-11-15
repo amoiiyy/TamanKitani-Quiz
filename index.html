@@ -460,6 +460,54 @@
                 let currentUsername = "";
                 let currentDisplayName = "";
 
+                // Supabase connection (publishable/anon key only)
+                const SUPABASE_URL = "https://wiwupmwlhvwihfojvvwy.supabase.co";
+                const SUPABASE_KEY = "sb_publishable_qfO0B3y1o7Gc3EkHpUa8-Q_mCneQ7_e";
+
+                // Load the logged-in player's display name using the username
+                // sent by Kodular through WebViewString.
+                async function loadUserNameFromSupabase() {
+                  try {
+                    const username = String(getKodularWebViewString()).trim();
+
+                    if (!username || username.startsWith("NAME|") || username.startsWith("USER|")) {
+                      console.log("No plain username received from Kodular");
+                      return;
+                    }
+
+                    currentUsername = username;
+
+                    const response = await fetch(
+                      `${SUPABASE_URL}/rest/v1/users?username=eq.${encodeURIComponent(username)}&select=name`,
+                      {
+                        method: "GET",
+                        headers: {
+                          "apikey": SUPABASE_KEY,
+                          "Authorization": `Bearer ${SUPABASE_KEY}`
+                        }
+                      }
+                    );
+
+                    if (!response.ok) {
+                      throw new Error("Supabase error: " + response.status);
+                    }
+
+                    const data = await response.json();
+
+                    if (data.length > 0 && data[0].name) {
+                      currentDisplayName = String(data[0].name).trim();
+                      const greeting = document.getElementById("welcomeName");
+                      if (greeting) {
+                        greeting.textContent = "Hi, " + currentDisplayName + "!";
+                      }
+                    } else {
+                      console.log("User not found in Supabase");
+                    }
+                  } catch (error) {
+                    console.error("Failed to load username:", error);
+                  }
+                }
+
                 function getKodularWebViewString() {
                   try {
                     if (window.AppInventor && typeof window.AppInventor.getWebViewString === "function") {
