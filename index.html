@@ -486,9 +486,6 @@
                       const parts = data.split("|");
                       currentUsername = (parts[1] || "").trim();
                       currentDisplayName = (parts[2] || "").trim();
-                    } else if (data && !data.includes("|")) {
-                      // Fallback if Kodular sends only the name.
-                      currentDisplayName = data;
                     }
 
                     const greeting = document.getElementById("welcomeName");
@@ -499,9 +496,6 @@
                     console.log("Unable to receive user data from Kodular:", e);
                   }
                 }
-
-                // Keep checking in case Kodular sends the name after the page loads.
-                setInterval(receiveNameFromKodular, 500);
 
                 var app = document.getElementById("app");
                 var LETTERS = ["A", "B", "C", "D"];
